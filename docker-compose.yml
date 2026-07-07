@@ -1,0 +1,22 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    # No ports exposed: MongoDB is only reachable from the app container.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    environment:
+      - PORT=3000
+      - MONGO_URL=mongodb://mongo:27017/isc-hour-tracker
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "127.0.0.1:3000:3000"   # only localhost; nginx proxies public traffic
+
+volumes:
+  mongo-data:
