@@ -253,24 +253,51 @@ function makeFichePdf({ monthKey, entries, weeksSummary, totalHours, rate, email
 /* ============================================================
    AUTH SCREEN
    ============================================================ */
+function getResetToken() {
+  if (window.location.pathname !== "/reset-password") return null;
+  return new URLSearchParams(window.location.search).get("token");
+}
+
 function AuthScreen({ onAuthed }) {
-  const [mode, setMode] = useState("login");
+  const resetToken = useRef(getResetToken());
+  const [mode, setMode] = useState(resetToken.current ? "reset" : "login"); // login | register | forgot | reset
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const go = (m) => {
+    setMode(m);
+    setError("");
+    setSent(false);
+    setPassword("");
+  };
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const data = await api(`/api/auth/${mode === "login" ? "login" : "register"}`, {
-        method: "POST",
-        body: JSON.stringify({ email, password }),
-      });
-      localStorage.setItem(TOKEN_KEY, data.token);
-      onAuthed(data.email);
+      if (mode === "forgot") {
+        await api("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+        setSent(true);
+      } else if (mode === "reset") {
+        const data = await api("/api/auth/reset-password", {
+          method: "POST",
+          body: JSON.stringify({ token: resetToken.current, password }),
+        });
+        window.history.replaceState(null, "", "/");
+        localStorage.setItem(TOKEN_KEY, data.token);
+        onAuthed(data.email);
+      } else {
+        const data = await api(`/api/auth/${mode === "login" ? "login" : "register"}`, {
+          method: "POST",
+          body: JSON.stringify({ email, password }),
+        });
+        localStorage.setItem(TOKEN_KEY, data.token);
+        onAuthed(data.email);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -288,43 +315,92 @@ function AuthScreen({ onAuthed }) {
         <div className="isc-sub" style={{ textAlign: "center", marginBottom: 22 }}>
           Informatique et systèmes de communication
         </div>
-        <div className="isc-auth-tabs">
-          <button className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>
-            Log in
-          </button>
-          <button className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>
-            Create account
-          </button>
-        </div>
-        <form onSubmit={submit}>
-          <label>
-            Email
-            <input
-              type="email"
-              value={email}
-              autoComplete="email"
-              required
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@hes-so.ch"
-            />
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={password}
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              required
-              minLength={8}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === "register" ? "At least 8 characters" : "Your password"}
-            />
-          </label>
-          {error && <div className="isc-auth-error">{error}</div>}
-          <button className="isc-btn magenta solid" type="submit" disabled={busy}>
-            {busy ? "One moment…" : mode === "login" ? "Log in" : "Create account"}
-          </button>
-        </form>
+
+        {(mode === "login" || mode === "register") && (
+          <div className="isc-auth-tabs">
+            <button className={mode === "login" ? "active" : ""} onClick={() => go("login")}>
+              Log in
+            </button>
+            <button className={mode === "register" ? "active" : ""} onClick={() => go("register")}>
+              Create account
+            </button>
+          </div>
+        )}
+
+        {mode === "forgot" && (
+          <div className="isc-auth-lead">
+            <strong>Forgot your password?</strong>
+            <span>Enter your email and we'll send you a link to reset it.</span>
+          </div>
+        )}
+        {mode === "reset" && (
+          <div className="isc-auth-lead">
+            <strong>Choose a new password</strong>
+            <span>You'll be logged in right away.</span>
+          </div>
+        )}
+
+        {mode === "forgot" && sent ? (
+          <div className="isc-auth-sent">
+            <span className="check">✓</span>
+            If an account exists for <strong>{email}</strong>, a reset link is on its way. Check your inbox.
+            <button type="button" className="isc-auth-link" onClick={() => go("login")}>
+              ← Back to log in
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={submit}>
+            {mode !== "reset" && (
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  autoComplete="email"
+                  required
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@hes-so.ch"
+                />
+              </label>
+            )}
+            {mode !== "forgot" && (
+              <label>
+                {mode === "reset" ? "New password" : "Password"}
+                <input
+                  type="password"
+                  value={password}
+                  autoComplete={mode === "login" ? "current-password" : "new-password"}
+                  required
+                  minLength={8}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={mode === "login" ? "Your password" : "At least 8 characters"}
+                />
+              </label>
+            )}
+            {error && <div className="isc-auth-error">{error}</div>}
+            <button className="isc-btn magenta solid" type="submit" disabled={busy}>
+              {busy
+                ? "One moment…"
+                : mode === "login"
+                ? "Log in"
+                : mode === "register"
+                ? "Create account"
+                : mode === "forgot"
+                ? "Send reset link"
+                : "Set new password"}
+            </button>
+            {mode === "login" && (
+              <button type="button" className="isc-auth-link" onClick={() => go("forgot")}>
+                Forgot password?
+              </button>
+            )}
+            {(mode === "forgot" || mode === "reset") && (
+              <button type="button" className="isc-auth-link" onClick={() => { resetToken.current = null; window.history.replaceState(null, "", "/"); go("login"); }}>
+                ← Back to log in
+              </button>
+            )}
+          </form>
+        )}
       </div>
     </div>
   );
@@ -984,6 +1060,12 @@ input:focus-visible,button:focus-visible,a:focus-visible{outline:2.5px solid var
 .isc-auth-card input{border:2px solid var(--line);border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;transition:border-color .2s}
 .isc-auth-card input:focus{border-color:var(--magenta);outline:none}
 .isc-auth-error{background:#FDECF4;color:var(--magenta);font-weight:700;font-size:12.5px;padding:9px 12px;border-radius:10px;animation:shake .35s ease}
+.isc-auth-lead{display:flex;flex-direction:column;gap:4px;text-align:center;margin-bottom:20px;font-size:13px;color:var(--mid);font-weight:600}
+.isc-auth-lead strong{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:17px;color:var(--ink)}
+.isc-auth-link{border:0;background:none;color:var(--mid);font-size:12.5px;font-weight:700;padding:2px;align-self:center;transition:color .2s}
+.isc-auth-link:hover{color:var(--magenta)}
+.isc-auth-sent{width:100%;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;font-size:13.5px;font-weight:600;line-height:1.55;color:var(--ink);animation:cardIn .4s cubic-bezier(.2,1.1,.3,1) both}
+.isc-auth-sent .check{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--mint);color:var(--ink);font-size:20px;font-weight:800;animation:pillPop .45s cubic-bezier(.2,1.6,.4,1) both}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
 .isc-btn.solid{background:var(--magenta);color:#fff;border-color:var(--magenta);justify-content:center;padding:11px;font-size:14px}
 .isc-btn.solid:hover{background:#C90F6C;border-color:#C90F6C;color:#fff}
